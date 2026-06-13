@@ -15,12 +15,12 @@ interface AppState {
 const DEFAULT_BLOCKED_SITES = ['instagram.com', 'discord.com', 'youtube.com'];
 const NON_REMOVABLE_SITES = new Set(DEFAULT_BLOCKED_SITES);
 const SITE_ICONS: Record<string, string> = {
-  'instagram.com': '📸',
-  'discord.com': '💬',
-  'youtube.com': '▶️',
-  'github.com': '🐱',
-  'facebook.com': '📘',
-  'twitter.com': '🐦',
+  'instagram.com': new URL('../../icons/instagram-square.svg', import.meta.url).href,
+  'discord.com': new URL('../../icons/discord-square.svg', import.meta.url).href,
+  'youtube.com': new URL('../../icons/youtube-square.svg', import.meta.url).href,
+  'github.com': new URL('../../icons/github.svg', import.meta.url).href,
+  'facebook.com': new URL('../../icons/facebook.svg', import.meta.url).href,
+  'twitter.com': new URL('../../icons/twitter.svg', import.meta.url).href,
 };
 
 const normalizeBlockedSite = (site: string) =>
@@ -310,7 +310,14 @@ export default function Dashboard() {
                 <div key={site} className="flex flex-col gap-3 rounded-xl border border-ink/10 bg-surface p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="text-2xl">{SITE_ICONS[site] ?? '🌐'}</div>
+                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white border border-ink/10 shadow-sm">
+                        <img
+                          src={SITE_ICONS[site] ?? ''}
+                          alt={`${site} logo`}
+                          className="h-full w-full object-contain p-2"
+                          loading="lazy"
+                        />
+                      </div>
                       <div>
                         <div className="font-semibold text-ink">{site}</div>
                         <div className="text-xs text-ink/60">{minutes * 10} coins for {minutes} minute{minutes !== 1 ? 's' : ''}</div>

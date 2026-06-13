@@ -78,17 +78,15 @@
     <h1 class="title">Focus first, distractions later</h1>
     <p class="subtitle">This site is blocked while you are in Grape mode. Spend your coins wisely and return when you're ready to stay on task.</p>
     <div class="coins">You have <strong id="coin-count">0</strong> coins</div>
-    <a class="shop" href="#" id="shop-button">Shop</a>
+    <a class="shop" href="/src/dashboard/dashboard.html?page=shop" id="shop-button">Shop</a>
   </div>
   <script>
     const coinCount = document.getElementById('coin-count');
-    const shopButton = document.getElementById('shop-button');
     chrome.storage.local.get(['coinBalance']).then(store => {
-      coinCount.textContent = (store.coinBalance ?? 0).toString();
+      if (coinCount) {
+        coinCount.textContent = (store.coinBalance ?? 0).toString();
+      }
     });
-    if (shopButton) {
-      shopButton.setAttribute('href', chrome.runtime.getURL('src/dashboard/dashboard.html?page=shop'));
-    }
   </script>
 </body>
 </html>
