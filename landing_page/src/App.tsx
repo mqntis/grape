@@ -52,14 +52,6 @@ const painPoints: Pain[] = [
   },
 ];
 
-function SparkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 2 9.5 9H3l5.3 3.8L6.2 21 12 16.7 17.8 21l-2.1-8.2L21 9h-6.5z" />
-    </svg>
-  );
-}
-
 function CoinIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -92,9 +84,7 @@ export default function App() {
     <div className="site-shell">
       <header className="topbar" aria-label="Primary">
         <a className="brand" href="#top">
-          <span className="brand-mark" aria-hidden="true">
-            <SparkIcon />
-          </span>
+          <img className="brand-logo" src="/logo.png" alt="" aria-hidden="true" />
           <span>Grape</span>
         </a>
         <a className="button button-sm" href="#waitlist">

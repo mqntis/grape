@@ -4,9 +4,12 @@ export interface Assignment {
   id: string;
   title: string;
   type: AssignmentType;
+  topic?: string;
   dueInDays: number;
   estHours?: number;
   calEst: number;
+  difficultyScore?: number;
+  source?: 'mock' | 'canvas' | 'classroom';
   done: boolean;
   mode?: 'early' | 'cram';
   actualHours?: number;

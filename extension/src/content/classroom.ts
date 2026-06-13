@@ -1,15 +1,15 @@
-// Google Classroom content script — DOM scrape
 import { ClassroomSource } from '../adapters/ClassroomSource.js';
 
-(async () => {
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type !== 'SCRAPE_CLASSROOM_TODO') return;
+
   const src = new ClassroomSource();
-  if (!(await src.isAvailable())) return;
-  try {
-    const assignments = await src.fetchAssignments();
-    if (assignments.length > 0) {
-      chrome.runtime.sendMessage({ type: 'UPDATE_ASSIGNMENTS', assignments });
-    }
-  } catch (e) {
-    console.warn('[Grape] Classroom sync failed:', e);
-  }
-})();
+  src.fetchAssignments()
+    .then(assignments => sendResponse({ ok: true, assignments }))
+    .catch(err => {
+      console.warn('[Grape] Classroom scrape failed:', err);
+      sendResponse({ ok: false, error: String(err) });
+    });
+
+  return true;
+});

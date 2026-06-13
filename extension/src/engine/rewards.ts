@@ -18,6 +18,15 @@ export function earlyBird(daysEarly: number): RewardResult {
   };
 }
 
+export function assignmentDifficultyReward(score: number): RewardResult {
+  const clamped = Math.max(0, Math.min(100, Math.round(score)));
+  return {
+    delta: clamped,
+    label: 'Difficulty Reward',
+    reason: `Task difficulty rated ${clamped}/100 by AI`,
+  };
+}
+
 export function pacedDay(): RewardResult {
   return { delta: 6, label: 'Paced Day', reason: 'Stayed within your paced daily load' };
 }
