@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Cadence",
+  "version": "0.1.0",
+  "description": "Prevent academic burnout by pacing your workload — not just tracking deadlines.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://*.instructure.com/*",
+    "https://classroom.google.com/*"
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Cadence"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.instructure.com/*"],
+      "js": ["src/content/canvas.ts"]
+    },
+    {
+      "matches": ["https://classroom.google.com/*"],
+      "js": ["src/content/classroom.ts"]
+    }
+  ],
+  "options_page": "src/dashboard/dashboard.html"
+}
