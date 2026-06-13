@@ -37,14 +37,17 @@ export default function Popup() {
       const tab = tabs[0];
       const url = tab?.url ?? '';
 
-      if (!tab?.id || !url.includes('classroom.google.com')) {
+      const isClassroom = url.includes('classroom.google.com');
+      const isCalendar = url.includes('calendar.google.com');
+
+      if (!tab?.id || (!isClassroom && !isCalendar)) {
         setImportState('error');
-        setImportMessage('Open a Google Classroom tab first, then try again.');
+        setImportMessage('Open Google Classroom or Google Calendar, then try again.');
         return;
       }
 
       const scrapeResult = await chrome.runtime.sendMessage({
-        type: 'SCRAPE_CLASSROOM_TODO_TAB',
+        type: 'SCRAPE_IMPORT_TAB',
         tabId: tab.id,
       }) as {
         ok?: boolean;
@@ -83,7 +86,7 @@ export default function Popup() {
 
       const activeCount = (importResult.assignments ?? []).filter(a => !a.done).length;
       setImportState('done');
-      setImportMessage(`Imported ${importResult.imported ?? 0} tasks due tomorrow. Active tasks: ${activeCount}.`);
+      setImportMessage(`Imported ${importResult.imported ?? 0} tasks. Active tasks: ${activeCount}. Forecast updated.`);
     } catch (err) {
       setImportState('error');
       setImportMessage(`Import failed: ${String(err)}`);

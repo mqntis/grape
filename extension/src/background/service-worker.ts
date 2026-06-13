@@ -39,6 +39,22 @@ async function requestClassroomContentScrape(tabId: number): Promise<Assignment[
   return null;
 }
 
+async function requestCalendarContentScrape(tabId: number): Promise<Assignment[] | null> {
+  try {
+    const contentResult = await chrome.tabs.sendMessage(tabId, { type: 'SCRAPE_CALENDAR_TASKS' }) as {
+      ok?: boolean;
+      assignments?: Assignment[];
+    };
+
+    if (contentResult?.ok) {
+      return contentResult.assignments ?? [];
+    }
+  } catch {
+  }
+
+  return null;
+}
+
 function scrapeClassroomTodoInPage(): Array<{
   id: string;
   title: string;
@@ -185,6 +201,141 @@ function scrapeClassroomTodoInPage(): Array<{
   });
 
   return assignments;
+}
+
+function scrapeCalendarTasksInPage(): Array<{
+  id: string;
+  title: string;
+  topic: string;
+  type: AssignmentType;
+  dueInDays: number;
+  calEst: number;
+  done: boolean;
+  source: 'calendar';
+}> {
+  const taskLikePattern = /\b(assignment|homework|quiz|project|essay|exam|task|lab|worksheet|reading|due)\b/i;
+  const testItemPattern = /\b(test|testing|sample|demo)\b/i;
+
+  const cleanText = (value: string | null | undefined): string =>
+    (value ?? '').replace(/\s+/g, ' ').trim();
+
+  const parseDueInDaysFromDate = (date: Date): number =>
+    Math.max(1, Math.ceil((date.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+
+  const parseDueInDays = (node: Element, aria: string): number | null => {
+    const datetimeValue = node.querySelector('time[datetime]')?.getAttribute('datetime');
+    if (datetimeValue) {
+      const parsed = new Date(datetimeValue);
+      if (!Number.isNaN(parsed.getTime())) return parseDueInDaysFromDate(parsed);
+    }
+
+    const lower = aria.toLowerCase();
+    if (lower.includes('tomorrow') || lower.includes('today')) return 1;
+
+    const inDays = lower.match(/in\s+(\d+)\s+day/);
+    if (inDays) return Math.max(1, Number(inDays[1]));
+
+    const withYear = aria.match(/\b([A-Za-z]+\s+\d{1,2},\s*\d{4})\b/);
+    if (withYear) {
+      const parsed = new Date(withYear[1]);
+      if (!Number.isNaN(parsed.getTime())) return parseDueInDaysFromDate(parsed);
+    }
+
+    const withoutYear = aria.match(/\b([A-Za-z]+\s+\d{1,2})\b/);
+    if (withoutYear) {
+      const year = new Date().getFullYear();
+      const parsed = new Date(`${withoutYear[1]}, ${year}`);
+      if (!Number.isNaN(parsed.getTime())) return parseDueInDaysFromDate(parsed);
+    }
+
+    return null;
+  };
+
+  const guessType = (title: string): AssignmentType => {
+    const t = title.toLowerCase();
+    if (t.includes('exam') || t.includes('midterm') || t.includes('final')) return 'exam';
+    if (t.includes('quiz')) return 'quiz';
+    if (t.includes('essay') || t.includes('paper')) return 'essay';
+    if (t.includes('project')) return 'project';
+    if (t.includes('read') || t.includes('chapter')) return 'reading';
+    return 'homework';
+  };
+
+  const readTitle = (node: Element, aria: string): string | null => {
+    const direct = cleanText(
+      node.querySelector('[data-event-title]')?.textContent ??
+      node.querySelector('[role="heading"]')?.textContent ??
+      node.querySelector('h2, h3')?.textContent
+    );
+    if (direct) return direct;
+
+    const fromAria = cleanText(aria.split(',')[0]);
+    return fromAria || null;
+  };
+
+  const makeId = (node: Element, fallback: number): string => {
+    const eventId = node.getAttribute('data-eventid');
+    if (eventId) return `calendar-${eventId}`;
+
+    const chip = node.closest('[data-eventid]');
+    const chipId = chip?.getAttribute('data-eventid');
+    if (chipId) return `calendar-${chipId}`;
+
+    return `calendar-fallback-${fallback}`;
+  };
+
+  const priors: Record<AssignmentType, number> = {
+    reading: 1.5,
+    homework: 2,
+    quiz: 1.5,
+    essay: 4,
+    project: 6,
+    exam: 5,
+  };
+
+  const candidates = Array.from(
+    document.querySelectorAll('[data-eventid], [data-eventid] [aria-label], [role="button"][aria-label][data-eventid]')
+  );
+  const assignments: Array<{
+    id: string;
+    title: string;
+    topic: string;
+    type: AssignmentType;
+    dueInDays: number;
+    calEst: number;
+    done: boolean;
+    source: 'calendar';
+  }> = [];
+  const seen = new Set<string>();
+
+  candidates.forEach((node, index) => {
+    const aria = cleanText(node.getAttribute('aria-label'));
+    const title = readTitle(node, aria);
+    if (!title || testItemPattern.test(title)) return;
+    if (!taskLikePattern.test(title) && !taskLikePattern.test(aria)) return;
+
+    const dueInDays = parseDueInDays(node, aria);
+    if (dueInDays === null || dueInDays > 13) return;
+
+    const id = makeId(node, index);
+    if (seen.has(id)) return;
+
+    const type = guessType(title);
+    assignments.push({
+      id,
+      title,
+      topic: type,
+      type,
+      dueInDays,
+      calEst: priors[type] ?? 2,
+      done: false,
+      source: 'calendar',
+    });
+
+    seen.add(id);
+  });
+
+  return assignments.sort((a, b) => a.dueInDays - b.dueInDays);
 }
 
 applyActionIcon();
@@ -349,7 +500,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
-  if (msg.type === 'SCRAPE_CLASSROOM_TODO_TAB') {
+  if (msg.type === 'SCRAPE_IMPORT_TAB') {
     const tabId = Number(msg.tabId);
     if (!tabId) {
       sendResponse({ ok: false, error: 'Missing tab id' });
@@ -357,31 +508,44 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
     (async () => {
+      let url = '';
       try {
-        const firstTry = await requestClassroomContentScrape(tabId);
+        const tab = await chrome.tabs.get(tabId);
+        url = tab.url ?? '';
+
+        const requestScrape = url.includes('calendar.google.com')
+          ? requestCalendarContentScrape
+          : requestClassroomContentScrape;
+
+        const firstTry = await requestScrape(tabId);
         if (firstTry) {
           sendResponse({ ok: true, assignments: firstTry });
           return;
         }
       } catch (err) {
-        sendResponse({ ok: false, error: `Could not reach Classroom tab: ${String(err)}` });
+        sendResponse({ ok: false, error: `Could not access tab: ${String(err)}` });
         return;
       }
 
       if (!chrome.scripting?.executeScript) {
-        sendResponse({ ok: false, error: 'Could not access Classroom tab. Reload extension, refresh Classroom, and try again.' });
+        sendResponse({ ok: false, error: 'Could not access tab. Reload extension and refresh the page.' });
         return;
       }
 
       try {
-        const injected = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: scrapeClassroomTodoInPage,
-        });
+        const injected = url.includes('calendar.google.com')
+          ? await chrome.scripting.executeScript({
+              target: { tabId },
+              func: scrapeCalendarTasksInPage,
+            })
+          : await chrome.scripting.executeScript({
+              target: { tabId },
+              func: scrapeClassroomTodoInPage,
+            });
 
         sendResponse({ ok: true, assignments: (injected[0]?.result ?? []) as Assignment[] });
       } catch (err) {
-        sendResponse({ ok: false, error: `Failed to scrape Classroom: ${String(err)}` });
+        sendResponse({ ok: false, error: `Failed to scrape tasks: ${String(err)}` });
       }
     })();
 
@@ -394,7 +558,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const current = (store['assignments'] as Assignment[] | undefined) ?? [];
         const incoming = (msg.assignments as Assignment[] | undefined) ?? [];
         if (incoming.length === 0) {
-          sendResponse({ ok: false, error: 'No Classroom tasks found on the current page.' });
+          sendResponse({ ok: false, error: 'No tasks found on the current page.' });
           return;
         }
         const enriched = await enrichAssignments(incoming, store['claudeApiKey'] as string | undefined);

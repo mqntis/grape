@@ -9,7 +9,7 @@ export interface Assignment {
   estHours?: number;
   calEst: number;
   difficultyScore?: number;
-  source?: 'mock' | 'canvas' | 'classroom';
+  source?: 'mock' | 'canvas' | 'classroom' | 'calendar';
   done: boolean;
   mode?: 'early' | 'cram';
   actualHours?: number;

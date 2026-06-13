@@ -7,6 +7,7 @@
   "host_permissions": [
     "https://*.instructure.com/*",
     "https://classroom.google.com/*",
+    "https://calendar.google.com/*",
     "https://api.anthropic.com/*"
   ],
   "action": {
@@ -43,6 +44,10 @@
     {
       "matches": ["https://classroom.google.com/*"],
       "js": ["src/content/classroom.ts"]
+    },
+    {
+      "matches": ["https://calendar.google.com/*"],
+      "js": ["src/content/calendar.ts"]
     }
   ],
   "options_page": "src/dashboard/dashboard.html"
