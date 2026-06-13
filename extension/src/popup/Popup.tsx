@@ -3,7 +3,6 @@ import type { Assignment, RewardEvent, Multipliers, CrunchInfo } from '../engine
 import { paced, natural, crunch, zone, HORIZON } from '../engine/scheduler';
 import { computeDrift } from '../engine/drift';
 import { makeRewardEvent, assignmentDifficultyReward } from '../engine/rewards';
-import { calcEst, DEFAULT_MULTIPLIERS } from '../engine/estimator';
 
 type ImportState = 'idle' | 'loading' | 'done' | 'error';
 
@@ -19,6 +18,8 @@ export default function Popup() {
   const [importState, setImportState] = useState<ImportState>('idle');
   const [importMessage, setImportMessage] = useState('');
   const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [addTaskMessage, setAddTaskMessage] = useState('');
+  const [isAddingTask, setIsAddingTask] = useState(false);
 
   const loadState = () => {
     chrome.runtime.sendMessage({ type: 'GET_STATE' }, (res: State) => setState(res));
@@ -81,9 +82,9 @@ export default function Popup() {
         loadState();
       }
 
-      const activeCount = (importResult.assignments ?? []).filter(a => !a.done).length;
+      const activeCount = (importResult.assignments ?? []).filter(a => !a.done && (a.active ?? true)).length;
       setImportState('done');
-      setImportMessage(`Imported ${importResult.imported ?? 0} tasks due tomorrow. Active tasks: ${activeCount}.`);
+      setImportMessage(`Imported ${importResult.imported ?? 0} tasks. Active tasks due tomorrow: ${activeCount}.`);
     } catch (err) {
       setImportState('error');
       setImportMessage(`Import failed: ${String(err)}`);
@@ -107,21 +108,49 @@ export default function Popup() {
     });
   };
 
-  const handleAddTask = () => {
+  const handleAddTask = async () => {
     if (!state) return;
     const title = newTaskTitle.trim();
     if (!title) return;
 
-    const type: Assignment['type'] = 'homework';
+    setIsAddingTask(true);
+    setAddTaskMessage('');
+
+    const estimateResult = await chrome.runtime.sendMessage({
+      type: 'ESTIMATE_TASK',
+      title,
+      dueInDays: 3,
+    }) as {
+      ok?: boolean;
+      analyzed?: {
+        cleanTitle?: string;
+        topic: string;
+        type: Assignment['type'];
+        estHours: number;
+        difficultyScore: number;
+        calEst: number;
+      };
+      error?: string;
+    };
+
+    if (!estimateResult?.ok || !estimateResult.analyzed) {
+      setIsAddingTask(false);
+      setAddTaskMessage(estimateResult?.error ?? 'Could not estimate task duration.');
+      return;
+    }
+
+    const analyzed = estimateResult.analyzed;
+    const cleanTitle = analyzed.cleanTitle?.trim() || title;
+
     const added: Assignment = {
       id: `manual-${Date.now()}`,
-      title,
-      topic: 'homework',
-      type,
+      title: cleanTitle,
+      topic: analyzed.topic,
+      type: analyzed.type,
       dueInDays: 3,
-      estHours: 2,
-      calEst: calcEst(type, 2, DEFAULT_MULTIPLIERS),
-      difficultyScore: 30,
+      estHours: analyzed.estHours,
+      calEst: analyzed.calEst,
+      difficultyScore: analyzed.difficultyScore,
       source: 'mock',
       done: false,
     };
@@ -130,6 +159,8 @@ export default function Popup() {
       { type: 'UPDATE_ASSIGNMENTS', assignments: [...state.assignments, added] },
       () => {
         setNewTaskTitle('');
+        setIsAddingTask(false);
+        setAddTaskMessage(`Added with AI estimate: ${analyzed.calEst}h (${analyzed.type}).`);
         loadState();
       }
     );
@@ -144,7 +175,7 @@ export default function Popup() {
   }
 
   const active = [...state.assignments]
-    .filter(a => !a.done)
+    .filter(a => !a.done && (a.active ?? true))
     .sort((a, b) => a.dueInDays - b.dueInDays);
   const pacedLoad = paced(active, HORIZON);
   const naturalLoad = natural(active, HORIZON);
@@ -159,6 +190,13 @@ export default function Popup() {
   }[todayZone];
 
   const drift = computeDrift(state.rewardEvents.slice(-20));
+
+  const formatSubject = (task: Assignment): string => {
+    const raw = (task.topic ?? task.type ?? 'homework').toString().trim();
+    const words = raw.split(/\s+/).filter(Boolean).slice(0, 2);
+    if (words.length === 0) return 'Homework';
+    return words.map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+  };
 
   return (
       <div className="w-72 bg-surface text-ink p-4 font-sans">
@@ -214,7 +252,7 @@ export default function Popup() {
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold truncate">{task.title}</div>
                   <div className="text-[11px] text-ink/55 truncate">
-                    {task.topic ?? task.type} · due +{task.dueInDays}d · {task.calEst}h
+                    {formatSubject(task)} · {task.calEst}h
                   </div>
                 </div>
                 <button
@@ -237,11 +275,13 @@ export default function Popup() {
           />
           <button
             onClick={handleAddTask}
+            disabled={isAddingTask}
             className="rounded-md bg-accent text-white px-2.5 py-1.5 text-xs font-semibold hover:bg-accent/90"
           >
-            Add Task
+            {isAddingTask ? 'Adding...' : 'Add Task'}
           </button>
         </div>
+        {addTaskMessage && <div className="mt-1 text-[11px] text-ink/60">{addTaskMessage}</div>}
       </div>
 
       <div className="flex gap-2">

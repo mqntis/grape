@@ -2,6 +2,8 @@ import type { Assignment, AssignmentType } from '../engine/types.js';
 import { calcEst, DEFAULT_MULTIPLIERS } from '../engine/estimator.js';
 
 type ModelResult = {
+  isValidTask: boolean;
+  cleanTitle: string;
   topic: string;
   type: AssignmentType;
   estHours: number;
@@ -128,6 +130,7 @@ function scrapeClassroomTodoInPage(): Array<{
   type: AssignmentType;
   dueInDays: number;
   calEst: number;
+  active?: boolean;
   done: boolean;
   source: 'classroom';
 }> {
@@ -236,6 +239,7 @@ function scrapeClassroomTodoInPage(): Array<{
     type: AssignmentType;
     dueInDays: number;
     calEst: number;
+    active?: boolean;
     done: boolean;
     source: 'classroom';
   }> = [];
@@ -248,8 +252,7 @@ function scrapeClassroomTodoInPage(): Array<{
     const id = makeId(card, index);
     if (seen.has(id)) return;
 
-    const dueInDays = readDueInDays(card);
-    if (dueInDays !== 1) return;
+    const dueInDays = readDueInDays(card) ?? 3;
     const type = guessType(title);
 
     assignments.push({
@@ -259,6 +262,7 @@ function scrapeClassroomTodoInPage(): Array<{
       type,
       dueInDays,
       calEst: priors[type] ?? 2,
+      active: dueInDays === 1,
       done: false,
       source: 'classroom',
     });
@@ -288,12 +292,48 @@ function extractJson(text: string): string {
   return text.slice(start, end + 1);
 }
 
+async function estimateTaskFromTitle(input: {
+  title: string;
+  dueInDays: number;
+}, apiKey: string): Promise<ModelResult> {
+  const tempAssignment: Assignment = {
+    id: 'temp',
+    title: input.title,
+    type: 'homework',
+    dueInDays: input.dueInDays,
+    calEst: 2,
+    done: false,
+  };
+
+  const analyzed = await analyzeWithOpenAI(tempAssignment, apiKey);
+  if (!analyzed) {
+    return {
+      isValidTask: true,
+      cleanTitle: input.title,
+      topic: 'homework',
+      type: 'homework',
+      estHours: 2,
+      difficultyScore: 30,
+    };
+  }
+
+  return analyzed;
+}
+
 async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promise<ModelResult | null> {
   const prompt = [
-    'Estimate how long this assignment will take based on its title only. Give a concise numeric estimate of hours needed for a typical student.',
+    'You classify and sanitize student assignment titles.',
+    'Determine whether this is a real school task title.',
+    'Reject UI labels, repeated noise, and non-task text.',
+    'If valid, clean the title by removing class names and repeated day words.',
+    'Keep only the assignment name itself, concise and readable.',
     `Title: ${assignment.title}`,
-    `Due in days: ${assignment.dueInDays}`,
-    'Return JSON only: {"estHours":number, "topic":"...", "type":"reading|homework|quiz|essay|project|exam", "difficultyScore":0-100}',
+    'Return strict JSON with fields: isValidTask, cleanTitle, estHours, topic, type, difficultyScore.',
+    'isValidTask must be boolean.',
+    'cleanTitle must be the cleaned assignment title.',
+    'estHours must be between 0.5 and 12.',
+    'type must be one of: reading, homework, quiz, essay, project, exam.',
+    'difficultyScore must be between 0 and 100.',
   ].join('\n');
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -303,8 +343,9 @@ async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promis
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
+      response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 500,
+      max_tokens: 220,
       temperature: 0.1,
     }),
   });
@@ -318,6 +359,8 @@ async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promis
   if (typeof text !== 'string') return null;
 
   const parsed = JSON.parse(extractJson(text)) as {
+    isValidTask?: boolean;
+    cleanTitle?: string;
     topic?: string;
     type?: string;
     estHours?: number;
@@ -327,8 +370,11 @@ async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promis
   const type = sanitizeType(parsed.type ?? assignment.type);
   const estHours = Math.max(0.5, Math.min(12, Number(parsed.estHours ?? assignment.calEst)));
   const difficultyScore = Math.max(0, Math.min(100, Math.round(Number(parsed.difficultyScore ?? 30))));
+  const cleanTitle = (parsed.cleanTitle ?? assignment.title).toString().replace(/\s+/g, ' ').trim();
 
   return {
+    isValidTask: Boolean(parsed.isValidTask ?? true),
+    cleanTitle,
     topic: (parsed.topic ?? type).toString(),
     type,
     estHours,
@@ -336,8 +382,13 @@ async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promis
   };
 }
 
-async function enrichAssignments(assignments: Assignment[], apiKey?: string): Promise<Assignment[]> {
+async function enrichAssignments(
+  assignments: Assignment[],
+  apiKey?: string,
+  options?: { filterInvalid?: boolean }
+): Promise<Assignment[]> {
   const results: Assignment[] = [];
+  const filterInvalid = options?.filterInvalid ?? false;
 
   for (const assignment of assignments) {
     let analyzed: ModelResult | null = null;
@@ -350,11 +401,21 @@ async function enrichAssignments(assignments: Assignment[], apiKey?: string): Pr
       }
     }
 
+    if (filterInvalid && !analyzed) {
+      continue;
+    }
+
+    if (filterInvalid && analyzed && (!analyzed.isValidTask || !analyzed.cleanTitle)) {
+      continue;
+    }
+
     const type = analyzed?.type ?? assignment.type;
     const estHours = analyzed?.estHours ?? assignment.estHours ?? assignment.calEst;
+    const title = analyzed?.cleanTitle ?? assignment.title;
 
     results.push({
       ...assignment,
+      title,
       type,
       topic: analyzed?.topic ?? assignment.topic ?? type,
       estHours,
@@ -515,12 +576,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.storage.local.get(['assignments', 'openAiApiKey'])
       .then(async store => {
         const current = (store['assignments'] as Assignment[] | undefined) ?? [];
-        const incoming = (msg.assignments as Assignment[] | undefined) ?? [];
+        const incoming = ((msg.assignments as Assignment[] | undefined) ?? [])
+          .map(item => ({
+            ...item,
+            active: item.dueInDays === 1,
+          }));
+        const apiKey = (store['openAiApiKey'] as string | undefined)?.trim() ?? '';
+
         if (incoming.length === 0) {
           sendResponse({ ok: false, error: 'No Classroom tasks found on the current page.' });
           return;
         }
-        const enriched = await enrichAssignments(incoming, store['openAiApiKey'] as string | undefined);
+
+        if (!apiKey) {
+          sendResponse({ ok: false, error: 'Add an OpenAI API key in Settings before importing tasks.' });
+          return;
+        }
+
+        const enriched = await enrichAssignments(incoming, apiKey, { filterInvalid: true });
         const merged = mergeAssignments(current, enriched);
         await chrome.storage.local.set({ assignments: merged });
         sendResponse({ ok: true, imported: enriched.length, total: merged.length, assignments: merged });
@@ -540,9 +613,39 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
 
         const assignments = (store['assignments'] as Assignment[] | undefined) ?? [];
-        const analyzed = await enrichAssignments(assignments, apiKey);
+        const analyzed = await enrichAssignments(assignments, apiKey, { filterInvalid: false });
         await chrome.storage.local.set({ assignments: analyzed });
         sendResponse({ ok: true, analyzed: analyzed.length });
+      })
+      .catch(err => sendResponse({ ok: false, error: String(err) }));
+
+    return true;
+  }
+
+  if (msg.type === 'ESTIMATE_TASK') {
+    chrome.storage.local.get(['openAiApiKey'])
+      .then(async store => {
+        const apiKey = (store['openAiApiKey'] as string | undefined)?.trim() ?? '';
+        if (!apiKey) {
+          sendResponse({ ok: false, error: 'Missing OpenAI API key in settings' });
+          return;
+        }
+
+        const title = typeof msg.title === 'string' ? msg.title.trim() : '';
+        const dueInDays = Math.max(1, Number(msg.dueInDays) || 3);
+        if (!title) {
+          sendResponse({ ok: false, error: 'Missing task title' });
+          return;
+        }
+
+        const analyzed = await estimateTaskFromTitle({ title, dueInDays }, apiKey);
+        if (!analyzed.isValidTask || !analyzed.cleanTitle) {
+          sendResponse({ ok: false, error: 'That does not look like a valid task title.' });
+          return;
+        }
+        const calEst = calcEst(analyzed.type, analyzed.estHours, DEFAULT_MULTIPLIERS);
+
+        sendResponse({ ok: true, analyzed: { ...analyzed, calEst } });
       })
       .catch(err => sendResponse({ ok: false, error: String(err) }));
 

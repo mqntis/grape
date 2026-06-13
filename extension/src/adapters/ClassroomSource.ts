@@ -113,8 +113,7 @@ export class ClassroomSource implements DataSource {
       const id = makeId(card, index);
       if (seen.has(id)) return;
 
-      const dueInDays = readDueInDays(card);
-      if (dueInDays !== 1) return;
+      const dueInDays = readDueInDays(card) ?? 3;
       const type = guessType(title);
 
       assignments.push({
@@ -124,6 +123,7 @@ export class ClassroomSource implements DataSource {
         type,
         dueInDays,
         calEst: calcEst(type, undefined, DEFAULT_MULTIPLIERS),
+        active: dueInDays === 1,
         done: false,
         source: 'classroom',
       });

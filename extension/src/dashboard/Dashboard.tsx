@@ -44,6 +44,33 @@ const ZONE_COLORS: Record<string, string> = {
   overload: '#c9706a',
 };
 
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 10.5 12 3l9 7.5" />
+      <path d="M6 9.5V21h12V9.5" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z" />
+      <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.1a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.1a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.1a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H20a2 2 0 1 1 0 4h-.1a1 1 0 0 0-.9.6Z" />
+    </svg>
+  );
+}
+
+function ShopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h16l-1.5 12h-13z" />
+      <path d="M9 8a3 3 0 1 1 6 0" />
+    </svg>
+  );
+}
+
 export default function Dashboard() {
   const [state, setState] = useState<AppState | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -79,6 +106,7 @@ export default function Dashboard() {
   }
 
   const active = state.assignments.filter(a => !a.done);
+  const allAssignments = [...state.assignments].sort((a, b) => a.dueInDays - b.dueInDays);
   const pacedLoad = paced(active, HORIZON);
   const naturalLoad = natural(active, HORIZON);
   const crunchInfo = crunch(naturalLoad);
@@ -164,26 +192,34 @@ export default function Dashboard() {
             <p className="text-sm text-ink/50">Workload pacing · not just deadline tracking</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPage('dashboard')}
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface border border-ink/10 px-3 py-2 text-xs font-semibold text-ink hover:bg-ink/5"
+          >
+            <HomeIcon />
+            Home
+          </button>
           <button
             type="button"
             onClick={() => setPage('settings')}
-            className="rounded-full bg-surface border border-ink/10 p-2 text-ink hover:bg-ink/5"
-            aria-label="Settings"
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface border border-ink/10 px-3 py-2 text-xs font-semibold text-ink hover:bg-ink/5"
           >
-            ⚙️
+            <SettingsIcon />
+            Settings
           </button>
           <button
             type="button"
             onClick={() => setPage('shop')}
-            className="rounded-full bg-surface border border-ink/10 p-2 text-ink hover:bg-ink/5"
-            aria-label="Shop"
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface border border-ink/10 px-3 py-2 text-xs font-semibold text-ink hover:bg-ink/5"
           >
-            🛍️
+            <ShopIcon />
+            Shop
           </button>
-          <div className="text-right">
-            <div className="text-xs text-ink/50">Coin Balance</div>
-            <div className="text-xl font-mono font-bold text-gold">{state.coinBalance}</div>
+          <div className="rounded-xl border border-yellow-300 bg-yellow-100 px-3 py-2 shadow-sm">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-yellow-800">Coin Balance</div>
+            <div className="text-lg font-mono font-bold text-yellow-900 leading-tight">{state.coinBalance}</div>
           </div>
         </div>
       </div>
@@ -393,6 +429,36 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="bg-card rounded-2xl shadow-sm p-5 mb-6">
+            <h2 className="font-semibold mb-3">All Tasks</h2>
+            {allAssignments.length === 0 && <p className="text-sm text-ink/40">No tasks imported yet.</p>}
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {allAssignments.map(task => {
+                const subject = (task.topic ?? task.type).split(/\s+/).slice(0, 2).join(' ');
+                const status = task.done ? 'Completed' : (task.active ?? true) ? 'Active' : 'Upcoming';
+                const statusTone = task.done
+                  ? 'text-healthy bg-healthy/10'
+                  : (task.active ?? true)
+                    ? 'text-tight bg-tight/10'
+                    : 'text-ink/60 bg-surface';
+
+                return (
+                  <div key={task.id} className="rounded-xl border border-ink/10 bg-surface p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate">{task.title}</div>
+                        <div className="text-xs text-ink/55">{subject} · {task.calEst}h</div>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusTone}`}>
+                        {status}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </>
