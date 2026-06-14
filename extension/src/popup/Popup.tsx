@@ -25,6 +25,14 @@ export default function Popup() {
     chrome.runtime.sendMessage({ type: 'GET_STATE' }, (res: State) => setState(res));
   };
 
+  const formatLoadHours = (hours: number): string => {
+    const totalMinutes = Math.round(hours * 60);
+    if (totalMinutes < 60) return `${totalMinutes}m`;
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  };
+
   const formatDuration = (task: Assignment): string => {
     const mins = task.estMinutes;
     if (typeof mins === 'number' && mins > 0) {
@@ -226,7 +234,7 @@ export default function Popup() {
       <div className="bg-card rounded-xl p-3 mb-3 shadow-sm">
         <div className="text-xs text-ink/60 mb-1">Today's paced load</div>
         <div className={`text-3xl font-mono font-bold ${zoneColor}`}>
-          {todayHours}h
+          {formatLoadHours(todayHours)}
         </div>
         <div className="text-xs mt-1 text-ink/50">
           {todayZone === 'healthy' && '✓ In the comfort zone'}
@@ -242,7 +250,7 @@ export default function Popup() {
           </div>
           <div className="text-xs text-ink/70 mt-0.5">
             {crunchInfo.runLength} overload day{crunchInfo.runLength !== 1 ? 's' : ''} starting in{' '}
-            {crunchInfo.startsInDays} day{crunchInfo.startsInDays !== 1 ? 's' : ''} (peak {crunchInfo.peakHours}h)
+            {crunchInfo.startsInDays} day{crunchInfo.startsInDays !== 1 ? 's' : ''} (peak {formatLoadHours(crunchInfo.peakHours)})
           </div>
           <div className="text-xs text-accent mt-1">→ Pace it now to smooth the curve</div>
         </div>

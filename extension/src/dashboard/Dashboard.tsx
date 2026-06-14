@@ -14,14 +14,11 @@ interface AppState {
 
 const DEFAULT_BLOCKED_SITES = ['instagram.com', 'discord.com', 'youtube.com'];
 const NON_REMOVABLE_SITES = new Set(DEFAULT_BLOCKED_SITES);
-const SITE_ICONS: Record<string, string> = {
-  'instagram.com': new URL('../../icons/instagram-square.svg', import.meta.url).href,
-  'discord.com': new URL('../../icons/discord-square.svg', import.meta.url).href,
-  'youtube.com': new URL('../../icons/youtube-square.svg', import.meta.url).href,
-  'github.com': new URL('../../icons/github.svg', import.meta.url).href,
-  'facebook.com': new URL('../../icons/facebook.svg', import.meta.url).href,
-  'twitter.com': new URL('../../icons/twitter.svg', import.meta.url).href,
-};
+const GOOGLE_SHARED_FAVICON_BASE = 'https://www.google.com/s2/favicons';
+
+function getFaviconUrl(domain: string): string {
+  return `${GOOGLE_SHARED_FAVICON_BASE}?domain=${encodeURIComponent(domain)}&sz=64`;
+}
 
 const normalizeBlockedSite = (site: string) =>
   site.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
@@ -53,6 +50,14 @@ function formatDuration(task: Assignment): string {
     return m === 0 ? `${h}h` : `${h}h ${m}m`;
   }
   return `${task.calEst}h`;
+}
+
+function formatLoadHours(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
 function HomeIcon() {
@@ -107,6 +112,32 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => { loadState(); }, [loadState]);
+
+  useEffect(() => {
+    const handleStorageChange = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: string
+    ) => {
+      if (areaName !== 'local') return;
+      if (!changes.coinBalance && !changes.rewardEvents && !changes.assignments) return;
+      loadState();
+    };
+
+    const handleWindowFocus = () => loadState();
+    const handleVisibility = () => {
+      if (!document.hidden) loadState();
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [loadState]);
 
   if (!state) {
     return (
@@ -323,8 +354,8 @@ export default function Dashboard() {
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 shrink-0 overflow-hidden">
                         <img
-                          src={SITE_ICONS[site] ?? ''}
-                          alt={`${site} logo`}
+                          src={getFaviconUrl(site)}
+                          alt={`${site} favicon`}
                           className="h-full w-full object-contain"
                           loading="lazy"
                         />
@@ -385,7 +416,7 @@ export default function Dashboard() {
               <div className="font-semibold text-overload text-sm">Crunch Forecast</div>
               <div className="text-sm text-ink/70 mt-1">
                 Your natural cram pattern creates <strong>{crunchInfo.runLength} consecutive overload day{crunchInfo.runLength !== 1 ? 's' : ''}</strong> starting in{' '}
-                <strong>{crunchInfo.startsInDays} day{crunchInfo.startsInDays !== 1 ? 's' : ''}</strong> (peak: <span className="font-mono">{crunchInfo.peakHours}h</span>).
+                <strong>{crunchInfo.startsInDays} day{crunchInfo.startsInDays !== 1 ? 's' : ''}</strong> (peak: <span className="font-mono">{formatLoadHours(crunchInfo.peakHours)}</span>).
                 The paced plan below smooths this out.
               </div>
             </div>
@@ -419,7 +450,7 @@ export default function Dashboard() {
                       />
                     </div>
                     <div className="text-[9px] text-ink/40 font-mono truncate w-full text-center">{DAY_LABELS[i]}</div>
-                    {ph > 0 && <div className="text-[8px] font-mono text-ink/60">{ph}h</div>}
+                    {ph > 0 && <div className="text-[8px] font-mono text-ink/60">{formatLoadHours(ph)}</div>}
                   </div>
                 );
               })}

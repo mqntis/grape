@@ -1,5 +1,4 @@
 import type { Assignment, AssignmentType } from '../engine/types.js';
-import { calcEst, DEFAULT_MULTIPLIERS } from '../engine/estimator.js';
 
 type ModelResult = {
   isValidTask: boolean;
@@ -321,6 +320,10 @@ function adjustMinutesByTitle(title: string, minutes: number): number {
   return minutes;
 }
 
+function roundHoursToFiveMinutes(hours: number): number {
+  return Math.round(hours * 12) / 12;
+}
+
 async function estimateTaskFromTitle(input: {
   title: string;
   dueInDays: number;
@@ -447,7 +450,7 @@ async function enrichAssignments(
 
     const type = analyzed?.type ?? assignment.type;
     const estMinutes = analyzed?.estMinutes ?? assignment.estMinutes ?? Math.round((assignment.estHours ?? assignment.calEst) * 60);
-    const estHoursForForecast = Math.max(0.5, estMinutes / 60);
+    const estHoursForForecast = Math.max(1 / 60, estMinutes / 60);
     const title = analyzed?.cleanTitle ?? assignment.title;
 
     results.push({
@@ -457,7 +460,7 @@ async function enrichAssignments(
       topic: analyzed?.topic ?? assignment.topic ?? type,
       estMinutes,
       estHours: estHoursForForecast,
-      calEst: calcEst(type, estHoursForForecast, DEFAULT_MULTIPLIERS),
+      calEst: roundHoursToFiveMinutes(estHoursForForecast),
       difficultyScore: analyzed?.difficultyScore ?? assignment.difficultyScore,
     });
   }
@@ -681,8 +684,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: false, error: 'That does not look like a valid task title.' });
           return;
         }
-        const estHoursForForecast = Math.max(0.5, analyzed.estMinutes / 60);
-        const calEst = calcEst(analyzed.type, estHoursForForecast, DEFAULT_MULTIPLIERS);
+        const estHoursForForecast = Math.max(1 / 60, analyzed.estMinutes / 60);
+        const calEst = roundHoursToFiveMinutes(estHoursForForecast);
 
         sendResponse({
           ok: true,

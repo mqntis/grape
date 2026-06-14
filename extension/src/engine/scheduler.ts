@@ -1,5 +1,8 @@
 import type { Assignment, CrunchInfo, Zone } from './types.js';
-import { roundToHalf } from './estimator.js';
+
+function roundToFiveMinutes(hours: number): number {
+  return Math.round(hours * 12) / 12;
+}
 
 export const COMFORT = 2.5;
 export const MAX = 4.0;
@@ -28,7 +31,7 @@ export function paced(items: Assignment[], horizon: number = HORIZON): number[] 
       rem -= add;
     }
   }
-  return load.map(roundToHalf);
+  return load.map(roundToFiveMinutes);
 }
 
 export function natural(items: Assignment[], horizon: number = HORIZON): number[] {
@@ -47,7 +50,7 @@ export function natural(items: Assignment[], horizon: number = HORIZON): number[
       d--;
     }
   }
-  return load.map(roundToHalf);
+  return load.map(roundToFiveMinutes);
 }
 
 export function crunch(naturalLoad: number[]): CrunchInfo {
