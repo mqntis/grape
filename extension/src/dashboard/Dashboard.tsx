@@ -101,6 +101,10 @@ export default function Dashboard() {
     return search === 'settings' || search === 'shop' ? search : 'dashboard';
   });
   const [shopMinutes, setShopMinutes] = useState<Record<string, number>>({});
+  const [unlockedSites, setUnlockedSites] = useState<Record<string, number>>({});
+  const [showShoppingAnimation, setShowShoppingAnimation] = useState(false);
+  const [animatingShoppingCart, setAnimatingShoppingCart] = useState('');
+  const [timerTick, setTimerTick] = useState(0);
 
   const loadState = useCallback(() => {
     chrome.runtime.sendMessage({ type: 'GET_STATE' }, (res: AppState) => {
@@ -109,9 +113,32 @@ export default function Dashboard() {
       setBlockedSites(normalizeBlockedSites(res.blockedSites));
       setShopMsg('');
     });
+    chrome.storage.local.get(['unblockedSites'], (result) => {
+      setUnlockedSites((result.unblockedSites as Record<string, number>) ?? {});
+    });
   }, []);
 
   useEffect(() => { loadState(); }, [loadState]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimerTick(t => t + 1);
+      chrome.storage.local.get(['unblockedSites'], (result) => {
+        const freshUnlockedSites = (result.unblockedSites as Record<string, number>) ?? {};
+        const now = Date.now();
+        const activeSites: Record<string, number> = {};
+        
+        Object.entries(freshUnlockedSites).forEach(([site, expiryMs]) => {
+          if (expiryMs > now) {
+            activeSites[site] = expiryMs;
+          }
+        });
+        
+        setUnlockedSites(activeSites);
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const handleStorageChange = (
@@ -119,8 +146,22 @@ export default function Dashboard() {
       areaName: string
     ) => {
       if (areaName !== 'local') return;
-      if (!changes.coinBalance && !changes.rewardEvents && !changes.assignments) return;
+      if (!changes.coinBalance && !changes.rewardEvents && !changes.assignments && !changes.unblockedSites) return;
       loadState();
+      
+      if (changes.unblockedSites) {
+        const now = Date.now();
+        const freshUnlockedSites = (changes.unblockedSites.newValue as Record<string, number>) ?? {};
+        const activeSites: Record<string, number> = {};
+        
+        Object.entries(freshUnlockedSites).forEach(([site, expiryMs]) => {
+          if (expiryMs > now) {
+            activeSites[site] = expiryMs;
+          }
+        });
+        
+        setUnlockedSites(activeSites);
+      }
     };
 
     const handleWindowFocus = () => loadState();
@@ -219,13 +260,54 @@ export default function Dashboard() {
         setShopMsg(result?.error ?? 'Purchase failed.');
         return;
       }
+      setAnimatingShoppingCart(site);
+      setShowShoppingAnimation(true);
+      setTimeout(() => setShowShoppingAnimation(false), 1500);
       setShopMsg(`Unlocked ${site} for ${minutes} minute${minutes !== 1 ? 's' : ''}. ${cost} coins spent.`);
       loadState();
     });
   };
 
   return (
-    <div className="min-h-screen bg-surface text-ink font-sans p-6 max-w-5xl mx-auto">
+    <>
+      {showShoppingAnimation && (
+        <div className="fixed inset-0 pointer-events-none overflow-hidden z-50">
+          <div className="relative w-full h-full">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-bounce">
+              <div className="text-4xl">🛒</div>
+            </div>
+            <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+              <div className="text-2xl font-bold text-accent animate-pulse">Apps Unblocked! 🎉</div>
+            </div>
+            <svg className="absolute top-1/2 left-1/4 w-20 h-20 animate-pulse" viewBox="0 0 100 100" fill="none" stroke="currentColor">
+              <circle cx="50" cy="50" r="45" className="text-accent" strokeWidth="2" />
+            </svg>
+          </div>
+        </div>
+      )}
+      <div className="min-h-screen bg-surface text-ink font-sans flex">
+        {Object.keys(unlockedSites).length > 0 && (
+          <div className="w-48 border-r border-ink/10 bg-card p-4 sticky top-0 h-screen overflow-y-auto">
+            <div className="font-semibold text-sm mb-4 text-accent">🔓 Unlocked Apps</div>
+            <div className="space-y-3">
+              {Object.entries(unlockedSites).map(([site, expiryMs]) => {
+                const now = Date.now();
+                const remaining = Math.max(0, expiryMs - now);
+                const minutes = Math.floor(remaining / 60000);
+                const seconds = Math.floor((remaining % 60000) / 1000);
+                return (
+                  <div key={site} className="rounded-lg bg-surface p-3 border border-accent/20">
+                    <div className="text-xs font-semibold text-ink mb-2">{site}</div>
+                    <div className="text-sm font-mono text-accent font-bold">
+                      {minutes}m {seconds}s
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div className="flex-1 p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <img src="/icons/icon128.png" alt="Grape" className="h-10 w-10 rounded-full" />
@@ -512,6 +594,8 @@ export default function Dashboard() {
           </div>
         </>
       )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 }

@@ -505,6 +505,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     },
   });
   await initBlockList();
+  chrome.alarms.create('checkBlockExpiry', { periodInMinutes: 0.5 });
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -699,5 +700,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch(err => sendResponse({ ok: false, error: String(err) }));
 
     return true;
+  }
+});
+
+// Periodically check for expired unlocks and re-apply blocking rules
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== 'checkBlockExpiry') return;
+  
+  const store = await chrome.storage.local.get(['blockedSites', 'unblockedSites']);
+  const blockedSites = (store.blockedSites as string[]) ?? DEFAULT_BLOCKED_SITES;
+  const unblockedSites = (store.unblockedSites as Record<string, number>) ?? {};
+  
+  const now = Date.now();
+  const hasExpired = Object.values(unblockedSites).some(expiry => expiry <= now);
+  
+  if (hasExpired) {
+    await applyBlockRules(blockedSites);
   }
 });
