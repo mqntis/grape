@@ -6,7 +6,7 @@ type ModelResult = {
   cleanTitle: string;
   topic: string;
   type: AssignmentType;
-  estHours: number;
+  estMinutes: number;
   difficultyScore: number;
 };
 
@@ -147,8 +147,19 @@ function scrapeClassroomTodoInPage(): Array<{
     const parsed = parseDueInDays(dateEl?.getAttribute('datetime') ?? '');
     if (parsed !== null) return parsed;
 
-    const text = (node.textContent ?? '').toLowerCase();
+    const dueText = (
+      node.querySelector('.oPfDcb.tGZW')?.textContent ??
+      node.querySelector('.oPfDcb')?.textContent ??
+      node.textContent ??
+      ''
+    ).toLowerCase();
+
+    const inDaysMatch = dueText.match(/in\s+(\d+)\s+day/);
+    if (inDaysMatch) return Math.max(1, Number(inDaysMatch[1]));
+
+    const text = dueText;
     if (text.includes('tomorrow')) return 1;
+    if (text.includes('today')) return 1;
     return null;
   };
 
@@ -172,6 +183,9 @@ function scrapeClassroomTodoInPage(): Array<{
   };
 
   const makeId = (node: Element, fallback: number): string => {
+    const streamItemId = node.getAttribute('data-stream-item-id');
+    if (streamItemId) return `classroom-stream-${streamItemId}`;
+
     const courseworkId = node.getAttribute('data-coursework-id');
     if (courseworkId) return `classroom-${courseworkId}`;
 
@@ -208,6 +222,12 @@ function scrapeClassroomTodoInPage(): Array<{
   };
 
   const readTitle = (node: Element): string | null => {
+    const classroomTitle = normalizeTitle(
+      node.querySelector('.y9bEQb .oDLUVd')?.textContent ??
+      node.querySelector('.y9bEQb p:first-of-type')?.textContent
+    );
+    if (classroomTitle) return classroomTitle;
+
     const direct = normalizeTitle(
       extractTitleFromLines(
       node.querySelector('[data-title]')?.textContent ??
@@ -231,7 +251,7 @@ function scrapeClassroomTodoInPage(): Array<{
     return fallback.length >= 5 ? fallback.slice(0, 140) : null;
   };
 
-  const cards = Array.from(document.querySelectorAll('[data-coursework-id], a[href*="/a/"], [role="listitem"]'));
+  const cards = Array.from(document.querySelectorAll('[data-stream-item-id][data-course-id]'));
   const assignments: Array<{
     id: string;
     title: string;
@@ -292,6 +312,15 @@ function extractJson(text: string): string {
   return text.slice(start, end + 1);
 }
 
+function adjustMinutesByTitle(title: string, minutes: number): number {
+  const t = title.toLowerCase();
+  const microTaskPattern = /\b(seat\s*change|attendance|check\s*in|sign\s*in|confirm\s*seat|seat\s*update|reflection\s*form|quarter\s*reflection|how('?|\s*)s\s*the\s*quarter|how\s*is\s*the\s*quarter|google\s*form|form|survey|poll)\b/;
+  if (microTaskPattern.test(t)) {
+    return Math.min(minutes, 5);
+  }
+  return minutes;
+}
+
 async function estimateTaskFromTitle(input: {
   title: string;
   dueInDays: number;
@@ -312,7 +341,7 @@ async function estimateTaskFromTitle(input: {
       cleanTitle: input.title,
       topic: 'homework',
       type: 'homework',
-      estHours: 2,
+      estMinutes: 120,
       difficultyScore: 30,
     };
   }
@@ -328,10 +357,13 @@ async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promis
     'If valid, clean the title by removing class names and repeated day words.',
     'Keep only the assignment name itself, concise and readable.',
     `Title: ${assignment.title}`,
-    'Return strict JSON with fields: isValidTask, cleanTitle, estHours, topic, type, difficultyScore.',
+    'Estimate duration in MINUTES (not hours) for a typical student.',
+    'Do not pad estimates. Very short admin tasks (seat change, attendance, check-in, simple form) are often 1-5 minutes.',
+    'Generic Google Forms not tied to substantial subject work are usually about 5 minutes.',
+    'Return strict JSON with fields: isValidTask, cleanTitle, estMinutes, topic, type, difficultyScore.',
     'isValidTask must be boolean.',
     'cleanTitle must be the cleaned assignment title.',
-    'estHours must be between 0.5 and 12.',
+    'estMinutes must be between 1 and 720.',
     'type must be one of: reading, homework, quiz, essay, project, exam.',
     'difficultyScore must be between 0 and 100.',
   ].join('\n');
@@ -361,6 +393,7 @@ async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promis
   const parsed = JSON.parse(extractJson(text)) as {
     isValidTask?: boolean;
     cleanTitle?: string;
+    estMinutes?: number;
     topic?: string;
     type?: string;
     estHours?: number;
@@ -368,7 +401,10 @@ async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promis
   };
 
   const type = sanitizeType(parsed.type ?? assignment.type);
-  const estHours = Math.max(0.5, Math.min(12, Number(parsed.estHours ?? assignment.calEst)));
+  const fallbackMinutes = Math.round((assignment.estMinutes ?? assignment.estHours ?? assignment.calEst) * 60);
+  const rawMinutes = Number(parsed.estMinutes ?? (parsed.estHours ? Number(parsed.estHours) * 60 : fallbackMinutes));
+  const boundedMinutes = Math.max(1, Math.min(720, Math.round(rawMinutes)));
+  const estMinutes = adjustMinutesByTitle(assignment.title, boundedMinutes);
   const difficultyScore = Math.max(0, Math.min(100, Math.round(Number(parsed.difficultyScore ?? 30))));
   const cleanTitle = (parsed.cleanTitle ?? assignment.title).toString().replace(/\s+/g, ' ').trim();
 
@@ -377,7 +413,7 @@ async function analyzeWithOpenAI(assignment: Assignment, apiKey: string): Promis
     cleanTitle,
     topic: (parsed.topic ?? type).toString(),
     type,
-    estHours,
+    estMinutes,
     difficultyScore,
   };
 }
@@ -410,7 +446,8 @@ async function enrichAssignments(
     }
 
     const type = analyzed?.type ?? assignment.type;
-    const estHours = analyzed?.estHours ?? assignment.estHours ?? assignment.calEst;
+    const estMinutes = analyzed?.estMinutes ?? assignment.estMinutes ?? Math.round((assignment.estHours ?? assignment.calEst) * 60);
+    const estHoursForForecast = Math.max(0.5, estMinutes / 60);
     const title = analyzed?.cleanTitle ?? assignment.title;
 
     results.push({
@@ -418,8 +455,9 @@ async function enrichAssignments(
       title,
       type,
       topic: analyzed?.topic ?? assignment.topic ?? type,
-      estHours,
-      calEst: calcEst(type, estHours, DEFAULT_MULTIPLIERS),
+      estMinutes,
+      estHours: estHoursForForecast,
+      calEst: calcEst(type, estHoursForForecast, DEFAULT_MULTIPLIERS),
       difficultyScore: analyzed?.difficultyScore ?? assignment.difficultyScore,
     });
   }
@@ -643,9 +681,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: false, error: 'That does not look like a valid task title.' });
           return;
         }
-        const calEst = calcEst(analyzed.type, analyzed.estHours, DEFAULT_MULTIPLIERS);
+        const estHoursForForecast = Math.max(0.5, analyzed.estMinutes / 60);
+        const calEst = calcEst(analyzed.type, estHoursForForecast, DEFAULT_MULTIPLIERS);
 
-        sendResponse({ ok: true, analyzed: { ...analyzed, calEst } });
+        sendResponse({
+          ok: true,
+          analyzed: {
+            ...analyzed,
+            estHours: estHoursForForecast,
+            calEst,
+          },
+        });
       })
       .catch(err => sendResponse({ ok: false, error: String(err) }));
 

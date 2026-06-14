@@ -44,6 +44,17 @@ const ZONE_COLORS: Record<string, string> = {
   overload: '#c9706a',
 };
 
+function formatDuration(task: Assignment): string {
+  const mins = task.estMinutes;
+  if (typeof mins === 'number' && mins > 0) {
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  }
+  return `${task.calEst}h`;
+}
+
 function HomeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -450,7 +461,7 @@ export default function Dashboard() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-semibold truncate">{task.title}</div>
-                        <div className="text-xs text-ink/55">{subject} · {task.calEst}h</div>
+                        <div className="text-xs text-ink/55">{subject} · {formatDuration(task)}</div>
                       </div>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusTone}`}>
                         {status}

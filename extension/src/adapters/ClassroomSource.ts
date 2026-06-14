@@ -15,8 +15,19 @@ function readDueInDays(node: Element): number | null {
   const parsed = parseDueInDays(dateEl?.getAttribute('datetime') ?? '');
   if (parsed !== null) return parsed;
 
-  const text = (node.textContent ?? '').toLowerCase();
+  const dueText = (
+    node.querySelector('.oPfDcb.tGZW')?.textContent ??
+    node.querySelector('.oPfDcb')?.textContent ??
+    node.textContent ??
+    ''
+  ).toLowerCase();
+
+  const inDaysMatch = dueText.match(/in\s+(\d+)\s+day/);
+  if (inDaysMatch) return Math.max(1, Number(inDaysMatch[1]));
+
+  const text = dueText;
   if (text.includes('tomorrow')) return 1;
+  if (text.includes('today')) return 1;
   return null;
 }
 
@@ -31,6 +42,9 @@ function guessType(title: string): Assignment['type'] {
 }
 
 function makeId(node: Element, fallback: number): string {
+  const streamItemId = node.getAttribute('data-stream-item-id');
+  if (streamItemId) return `classroom-stream-${streamItemId}`;
+
   const courseworkId = node.getAttribute('data-coursework-id');
   if (courseworkId) return `classroom-${courseworkId}`;
 
@@ -71,6 +85,12 @@ function extractTitleFromLines(value: string | null | undefined): string {
 }
 
 function readTitle(node: Element): string | null {
+  const classroomTitle = normalizeTitle(
+    node.querySelector('.y9bEQb .oDLUVd')?.textContent ??
+    node.querySelector('.y9bEQb p:first-of-type')?.textContent
+  );
+  if (classroomTitle) return classroomTitle;
+
   const direct = normalizeTitle(
     extractTitleFromLines(
     node.querySelector('[data-title]')?.textContent ??
@@ -101,7 +121,7 @@ export class ClassroomSource implements DataSource {
 
   async fetchAssignments(): Promise<Assignment[]> {
     const cards = Array.from(
-      document.querySelectorAll('[data-coursework-id], a[href*="/a/"], [role="listitem"]')
+      document.querySelectorAll('[data-stream-item-id][data-course-id]')
     );
     const assignments: Assignment[] = [];
     const seen = new Set<string>();

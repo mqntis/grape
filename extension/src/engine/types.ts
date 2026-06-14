@@ -6,6 +6,7 @@ export interface Assignment {
   type: AssignmentType;
   topic?: string;
   dueInDays: number;
+  estMinutes?: number;
   estHours?: number;
   calEst: number;
   difficultyScore?: number;

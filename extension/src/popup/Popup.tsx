@@ -25,6 +25,17 @@ export default function Popup() {
     chrome.runtime.sendMessage({ type: 'GET_STATE' }, (res: State) => setState(res));
   };
 
+  const formatDuration = (task: Assignment): string => {
+    const mins = task.estMinutes;
+    if (typeof mins === 'number' && mins > 0) {
+      if (mins < 60) return `${mins}m`;
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return m === 0 ? `${h}h` : `${h}h ${m}m`;
+    }
+    return `${task.calEst}h`;
+  };
+
   useEffect(() => {
     loadState();
   }, []);
@@ -126,6 +137,7 @@ export default function Popup() {
         cleanTitle?: string;
         topic: string;
         type: Assignment['type'];
+        estMinutes?: number;
         estHours: number;
         difficultyScore: number;
         calEst: number;
@@ -148,6 +160,7 @@ export default function Popup() {
       topic: analyzed.topic,
       type: analyzed.type,
       dueInDays: 3,
+      estMinutes: analyzed.estMinutes,
       estHours: analyzed.estHours,
       calEst: analyzed.calEst,
       difficultyScore: analyzed.difficultyScore,
@@ -160,7 +173,7 @@ export default function Popup() {
       () => {
         setNewTaskTitle('');
         setIsAddingTask(false);
-        setAddTaskMessage(`Added with AI estimate: ${analyzed.calEst}h (${analyzed.type}).`);
+        setAddTaskMessage(`Added with AI estimate: ${formatDuration(added)} (${analyzed.type}).`);
         loadState();
       }
     );
@@ -252,7 +265,7 @@ export default function Popup() {
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold truncate">{task.title}</div>
                   <div className="text-[11px] text-ink/55 truncate">
-                    {formatSubject(task)} · {task.calEst}h
+                    {formatSubject(task)} · {formatDuration(task)}
                   </div>
                 </div>
                 <button
