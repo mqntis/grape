@@ -131,18 +131,39 @@ async function applyBlockRules(blockedSites: string[]) {
   });
 }
 
-async function reloadAllTabs(): Promise<void> {
+function hostnameMatchesDomain(hostname: string, domain: string): boolean {
+  const normalizedHostname = hostname.trim().toLowerCase();
+  const normalizedDomain = domain.trim().toLowerCase();
+  if (!normalizedHostname || !normalizedDomain) return false;
+  return normalizedHostname === normalizedDomain || normalizedHostname.endsWith(`.${normalizedDomain}`);
+}
+
+async function closeTabsForDomains(domains: string[]): Promise<void> {
+  const normalizedDomains = [...new Set(domains.map(domain => domain.trim().toLowerCase()).filter(Boolean))];
+  if (normalizedDomains.length === 0) return;
+
   const tabs = await chrome.tabs.query({});
+  const tabsToClose = tabs
+    .filter((tab) => {
+      if (typeof tab.id !== 'number' || !tab.url) return false;
+      try {
+        const hostname = new URL(tab.url).hostname;
+        return normalizedDomains.some(domain => hostnameMatchesDomain(hostname, domain));
+      } catch {
+        return false;
+      }
+    })
+    .map(tab => tab.id as number);
+
+  if (tabsToClose.length === 0) return;
+
   await Promise.allSettled(
-    tabs
-      .map(tab => tab.id)
-      .filter((tabId): tabId is number => typeof tabId === 'number')
-      .map(async tabId => {
-        try {
-          await chrome.tabs.reload(tabId);
-        } catch {
-        }
-      })
+    tabsToClose.map(async (tabId) => {
+      try {
+        await chrome.tabs.remove(tabId);
+      } catch {
+      }
+    })
   );
 }
 
@@ -773,11 +794,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const unblockedSites = (store.unblockedSites as Record<string, number>) ?? {};
   
   const now = Date.now();
-  const hasExpired = Object.values(unblockedSites).some(expiry => expiry <= now);
+  const expiredDomains = Object.entries(unblockedSites)
+    .filter(([, expiry]) => expiry <= now)
+    .map(([domain]) => domain);
+  const hasExpired = expiredDomains.length > 0;
   
   if (hasExpired) {
     await applyBlockRules(blockedSites);
-    await reloadAllTabs();
+    await closeTabsForDomains(expiredDomains);
     return;
   }
 
