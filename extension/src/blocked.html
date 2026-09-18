@@ -5,80 +5,89 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Grape Focus Mode</title>
   <style>
+    @font-face {
+      font-family: 'DepartureMono';
+      src: url('/fonts/DepartureMono.woff2') format('woff2');
+      font-display: swap;
+    }
+    :root {
+      --void: #0e0b14;
+      --green: #5ef08a;
+      --grape: #b07cff;
+      --grape-deep: #7c3aed;
+      --dim: #5a5470;
+      --error: #ff6b6b;
+      --coin: #e8b84b;
+      --mono: 'DepartureMono', ui-monospace, 'JetBrains Mono', monospace;
+    }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, #eef3f0, #d7e8e2);
-      color: #1f2d2b;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      text-align: center;
-      padding: 24px;
-    }
-    .card {
-      max-width: 520px;
-      width: 100%;
-      background: white;
-      border-radius: 24px;
-      box-shadow: 0 24px 60px rgba(34, 49, 53, 0.12);
-      padding: 36px 28px;
-    }
-    .grape {
-      font-size: 72px;
-      line-height: 1;
-      margin-bottom: 16px;
-    }
-    .title {
-      font-size: 28px;
-      margin: 0 0 12px;
-    }
-    .subtitle {
-      margin: 0 0 24px;
-      color: #52605f;
+      background: var(--void);
+      color: var(--green);
+      font-family: var(--mono);
       font-size: 15px;
       line-height: 1.6;
+      -webkit-font-smoothing: none;
+      padding: 24px;
     }
-    .coins {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      margin: 0 auto 28px;
-      background: #f6f4e8;
-      color: #7b5a2b;
-      border-radius: 999px;
-      padding: 10px 18px;
-      font-size: 16px;
-      font-weight: 600;
+    body::after {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none; z-index: 10;
+      background: repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,0.18) 3px);
     }
-    .shop {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      min-width: 200px;
-      padding: 14px 20px;
-      border-radius: 999px;
-      background: #2f7d6e;
-      color: white;
+    .term {
+      width: 100%;
+      max-width: 640px;
+      border: 1px solid var(--grape-deep);
+      padding: 28px 32px;
+      box-shadow: 0 0 40px rgba(124, 58, 237, 0.25);
+    }
+    pre.logo { color: var(--grape); margin: 0 0 14px; font-size: 13px; line-height: 1.1; }
+    .sprite {
+      display: block;
+      width: 96px; height: auto;
+      margin: 0 0 18px;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 0 16px rgba(124, 58, 237, 0.55));
+    }
+    .row { white-space: pre-wrap; word-break: break-word; }
+    .p { color: var(--grape); }        /* prompt caret */
+    .dim { color: var(--dim); }
+    .err { color: var(--error); font-weight: 600; }
+    .coin { color: var(--coin); }
+    #tasks-remaining, #coin-count { color: var(--green); }
+    .hidden { display: none !important; }
+    a.shop {
+      display: inline-block;
+      margin-top: 16px;
+      color: var(--void);
+      background: var(--green);
       text-decoration: none;
-      font-weight: 700;
-      font-size: 14px;
-      box-shadow: 0 14px 30px rgba(47, 125, 110, 0.22);
+      padding: 6px 16px;
+      font-weight: 600;
+      border: none;
     }
-    .shop:hover {
-      background: #2d765f;
-    }
+    a.shop:hover { filter: brightness(1.1); }
+    .caret { display:inline-block; width:.55em; height:1em; background:var(--grape); vertical-align:-2px; animation:b 1s steps(1) infinite; }
+    @keyframes b { 50% { opacity:0; } }
+    @media (prefers-reduced-motion: reduce) { body::after { display:none; } .caret { animation:none; } }
   </style>
 </head>
 <body>
-  <div class="card">
-    <img class="grape" src="../icons/icon128.png" alt="Grape logo" />
-    <h1 class="title">Focus first, distractions later</h1>
-    <p class="subtitle">This site is blocked while you are in Grape mode. Spend your coins wisely and return when you're ready to stay on task.</p>
-    <div class="coins">You have <strong id="coin-count">0</strong> coins</div>
-    <a class="shop" href="/src/dashboard/dashboard.html?page=shop" id="shop-button">Shop</a>
+  <div class="term">
+    <img class="sprite" src="/pixel-grape.png" alt="Grape" />
+    <div class="row" style="margin-bottom:10px"><span class="p">grape</span><span class="dim">OS</span></div>
+    <div class="row"><span class="p">&gt;</span> <span class="err">ACCESS DENIED</span> <span class="dim">— focus mode active</span></div>
+    <div class="row"><span class="p">&gt;</span> <span id="gate-message" class="dim">this site is blocked.</span></div>
+    <div class="row hidden" id="tasks-pill"><span class="p">&gt;</span> tasks left to unlock apps: <strong id="tasks-remaining">0</strong></div>
+    <div class="row hidden" id="coins-pill"><span class="p">&gt;</span> coins available: <strong id="coin-count" class="coin">0</strong></div>
+    <div class="row"><span class="p">&gt;</span> <span class="caret"></span></div>
+    <a class="shop hidden" href="/src/dashboard/dashboard.html?page=shop" id="shop-button">open shop</a>
   </div>
   <script src="./blocked.js"></script>
 </body>

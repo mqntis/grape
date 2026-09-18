@@ -1,47 +1,79 @@
 @import "tailwindcss";
 
+/* Pixel font — drop DepartureMono.woff2 (OFL) into public/fonts/ to activate; else falls back to monospace. */
+@font-face {
+  font-family: 'DepartureMono';
+  src: url('/fonts/DepartureMono.woff2') format('woff2');
+  font-display: swap;
+  font-weight: normal;
+}
+
 @theme {
-  --color-ink: #1f2d2b;
-  --color-surface: #eef3f0;
-  --color-card: #ffffff;
-  --color-accent: #2f7d6e;
-  --color-healthy: #6aa37f;
-  --color-tight: #d9a441;
-  --color-overload: #c9706a;
-  --color-gold: #b8923a;
+  /* grapeOS phosphor palette */
+  --color-void: #0e0b14;        /* canvas */
+  --color-surface: #0e0b14;
+  --color-panel: #171226;       /* raised panel */
+  --color-line: #2a2340;        /* borders */
+  --color-green: #5ef08a;       /* primary phosphor text */
+  --color-ink: #cfe8d6;         /* softer body text */
+  --color-grape: #b07cff;       /* accent / prompt / headings */
+  --color-grape-deep: #7c3aed;
+  --color-dim: #5a5470;         /* muted */
+  --color-warn: #f0c04a;
+  --color-error: #ff6b6b;
+  --color-coin: #e8b84b;
+
+  --font-mono: 'DepartureMono', 'Berkeley Mono', ui-monospace, 'JetBrains Mono', 'SF Mono', monospace;
+  --font-sans: var(--font-mono);
 }
 
 body {
-  background-color: #eef3f0;
-  color: #1f2d2b;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0e0b14;
+  color: #5ef08a;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: none;   /* keep pixels crisp */
 }
 
-@keyframes confettiFall {
-  0% {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 1;
-  }
-  20% {
-    opacity: 1;
-  }
-  100% {
-    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot));
-    opacity: 0;
-  }
+/* Blinking block caret */
+@keyframes caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.caret {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.05em;
+  background: var(--color-grape);
+  vertical-align: text-bottom;
+  animation: caret-blink 1s steps(1) infinite;
 }
 
-.confetti-stage {
-  position: relative;
+/* Faint CRT scanlines over the whole surface */
+.crt::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.18) 3px
+  );
+  z-index: 50;
 }
 
-.confetti-piece {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 10px;
-  height: 18px;
-  border-radius: 2px;
-  opacity: 0;
-  animation: confettiFall 1s cubic-bezier(0.22, 0.9, 0.35, 1) forwards;
+/* Boot line reveal */
+@keyframes line-in { from { opacity: 0; } to { opacity: 1; } }
+.line-in { animation: line-in 0.12s steps(2) both; }
+
+::selection { background: var(--color-grape-deep); color: #fff; }
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-line); }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .caret { animation: none; opacity: 1; }
+  .crt::after { display: none; }
+  .line-in { animation: none; }
 }

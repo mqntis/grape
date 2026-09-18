@@ -1,4 +1,5 @@
 import type { Assignment, AssignmentType } from '../engine/types.js';
+import { activeBlockedSites as computeActiveBlockedSites, canGrantUnlockWindow } from '../engine/gate.js';
 
 type ModelResult = {
   isValidTask: boolean;
@@ -102,22 +103,25 @@ function pruneUnblockedSites(unblockedSites?: Record<string, number>): Record<st
   }, {});
 }
 
-// Checks whether a domain is currently unlocked by timer.
-function isSiteUnlocked(domain: string, unblockedSites?: Record<string, number>): boolean {
-  const normalized = domain.trim().toLowerCase();
-  const expiry = unblockedSites?.[normalized];
-  return typeof expiry === 'number' && expiry > Date.now();
-}
-
 // Recomputes and applies dynamic redirect rules for blocked sites.
 async function applyBlockRules(blockedSites: string[]) {
-  const store = await chrome.storage.local.get(['unblockedSites']);
+  const store = await chrome.storage.local.get(['unblockedSites', 'assignments', 'aiModeEnabled']);
   const unblockedSites = pruneUnblockedSites(store.unblockedSites as Record<string, number> | undefined);
   if (Object.keys(unblockedSites).length !== Object.keys(store.unblockedSites ?? {}).length) {
     await chrome.storage.local.set({ unblockedSites });
   }
   await scheduleExpiryAlarms(unblockedSites);
-  const activeBlockedSites = blockedSites.filter(site => !isSiteUnlocked(site, unblockedSites));
+
+  // AI focus-gate: finishing every task earns a fully unblocked state
+  // (until a new not-done task is added and blocking resumes).
+  const assignments = (store.assignments as Assignment[] | undefined) ?? [];
+  const activeBlockedSites = computeActiveBlockedSites(
+    blockedSites,
+    unblockedSites,
+    assignments,
+    Boolean(store.aiModeEnabled)
+  );
+
   const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
   const removeRuleIds = currentRules.map(rule => rule.id);
 
@@ -576,6 +580,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     coinBalance: 0,
     rewardEvents: [],
     openAiApiKey: '',
+    aiModeEnabled: true,
     multipliers: {
       reading: 1.0,
       homework: 1.0,
@@ -597,12 +602,17 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'GET_STATE') {
-    chrome.storage.local.get(['assignments', 'coinBalance', 'rewardEvents', 'multipliers', 'openAiApiKey', 'blockedSites'])
+    chrome.storage.local.get(['assignments', 'coinBalance', 'rewardEvents', 'multipliers', 'openAiApiKey', 'blockedSites', 'aiModeEnabled', 'unblockedSites'])
       .then(sendResponse);
     return true;
   }
   if (msg.type === 'UPDATE_ASSIGNMENTS') {
-    chrome.storage.local.set({ assignments: msg.assignments }).then(() => sendResponse({ ok: true }));
+    chrome.storage.local.set({ assignments: msg.assignments }).then(async () => {
+      // Re-apply rules so completing the last task unblocks, and adding a new task re-blocks.
+      const store = await chrome.storage.local.get(['blockedSites']);
+      await applyBlockRules((store.blockedSites as string[] | undefined) ?? DEFAULT_BLOCKED_SITES);
+      sendResponse({ ok: true });
+    });
     return true;
   }
   if (msg.type === 'ADD_REWARD') {
@@ -652,6 +662,46 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       await chrome.storage.local.set({ coinBalance: coinBalance - cost, unblockedSites: nextUnblockedSites });
       await applyBlockRules(blockedSites);
       sendResponse({ ok: true, balance: coinBalance - cost });
+    }).catch(err => sendResponse({ ok: false, error: String(err) }));
+
+    return true;
+  }
+
+  // Flips the AI focus-gate mode and recomputes blocking for the new mode.
+  if (msg.type === 'SET_AI_MODE') {
+    (async () => {
+      const enabled = Boolean(msg.enabled);
+      await chrome.storage.local.set({ aiModeEnabled: enabled });
+      const store = await chrome.storage.local.get(['blockedSites']);
+      await applyBlockRules((store.blockedSites as string[] | undefined) ?? DEFAULT_BLOCKED_SITES);
+      sendResponse({ ok: true, aiModeEnabled: enabled });
+    })();
+    return true;
+  }
+
+  // Task-gated unlock: finishing a task opens one 10-minute window for all blocked apps.
+  // One window per task — if a window is already active, completing another does not stack.
+  if (msg.type === 'COMPLETE_TASK_UNLOCK') {
+    chrome.storage.local.get(['aiModeEnabled', 'blockedSites', 'unblockedSites']).then(async store => {
+      if (!store.aiModeEnabled) {
+        sendResponse({ ok: false, error: 'AI mode is off.' });
+        return;
+      }
+      const blockedSites = (store.blockedSites as string[] | undefined) ?? DEFAULT_BLOCKED_SITES;
+      const unblockedSites = pruneUnblockedSites(store.unblockedSites as Record<string, number> | undefined);
+
+      if (!canGrantUnlockWindow(unblockedSites)) {
+        sendResponse({ ok: true, alreadyActive: true });
+        return;
+      }
+
+      const expiry = Date.now() + 10 * 60 * 1000;
+      const nextUnblockedSites: Record<string, number> = {};
+      for (const domain of blockedSites) nextUnblockedSites[domain] = expiry;
+
+      await chrome.storage.local.set({ unblockedSites: nextUnblockedSites });
+      await applyBlockRules(blockedSites);
+      sendResponse({ ok: true, expiry });
     }).catch(err => sendResponse({ ok: false, error: String(err) }));
 
     return true;

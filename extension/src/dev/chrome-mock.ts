@@ -10,6 +10,9 @@ interface Store {
   coinBalance: number;
   rewardEvents: RewardEvent[];
   multipliers: Multipliers;
+  aiModeEnabled: boolean;
+  blockedSites: string[];
+  unblockedSites: Record<string, number>;
 }
 
 const DEFAULT_MULTIPLIERS: Multipliers = {
@@ -21,6 +24,9 @@ let store: Store = {
   coinBalance: 0,
   rewardEvents: [],
   multipliers: DEFAULT_MULTIPLIERS,
+  aiModeEnabled: true,
+  blockedSites: ['instagram.com', 'discord.com', 'youtube.com'],
+  unblockedSites: {},
 };
 
 // Seed mock data on load
@@ -45,6 +51,17 @@ function handleMessage(msg: Record<string, unknown>, sendResponse: MessageHandle
       rewardEvents: [...store.rewardEvents, event],
     };
     sendResponse({ ok: true, balance: store.coinBalance });
+  } else if (msg['type'] === 'SET_AI_MODE') {
+    store = { ...store, aiModeEnabled: Boolean(msg['enabled']) };
+    sendResponse({ ok: true, aiModeEnabled: store.aiModeEnabled });
+  } else if (msg['type'] === 'COMPLETE_TASK_UNLOCK') {
+    const expiry = Date.now() + 10 * 60 * 1000;
+    const next: Record<string, number> = {};
+    for (const domain of store.blockedSites) next[domain] = expiry;
+    store = { ...store, unblockedSites: next };
+    sendResponse({ ok: true, expiry });
+  } else {
+    sendResponse({ ok: true });
   }
 }
 
@@ -73,6 +90,10 @@ function handleMessage(msg: Record<string, unknown>, sendResponse: MessageHandle
         store = { ...store, ...data };
         if (cb) setTimeout(cb, 0);
       },
+    },
+    onChanged: {
+      addListener: () => {},
+      removeListener: () => {},
     },
   },
 };
